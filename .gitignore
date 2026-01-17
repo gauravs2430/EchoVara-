@@ -1,0 +1,8 @@
+# Global
+node_modules/
+.env
+.DS_Store
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
