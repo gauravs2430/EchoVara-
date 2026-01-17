@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { motion, useScroll, useTransform } from 'framer-motion';
 
 const HeadphoneScroll = () => {
@@ -6,13 +6,12 @@ const HeadphoneScroll = () => {
     const canvasRef = useRef(null);
     const [images, setImages] = useState([]);
     const [imagesLoaded, setImagesLoaded] = useState(false);
+    const frameIndexRef = useRef(0);
 
     const { scrollYProgress } = useScroll({
         target: containerRef,
         offset: ["start start", "end end"]
     });
-
-    const currentFrame = useTransform(scrollYProgress, [0, 1], [1, 240]);
 
     // Preload all images
     useEffect(() => {
@@ -38,100 +37,92 @@ const HeadphoneScroll = () => {
         setImages(loadedImages);
     }, []);
 
-    // Draw frame to canvas
+    // Optimized render function
+    const renderFrame = useCallback((frameIndex) => {
+        if (!canvasRef.current || !images[frameIndex]) return;
+
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d', { alpha: false });
+        const img = images[frameIndex];
+
+        if (!img.complete) return;
+
+        const scale = Math.max(
+            canvas.width / img.width,
+            canvas.height / img.height
+        );
+
+        const x = (canvas.width / 2) - (img.width / 2) * scale;
+        const y = (canvas.height / 2) - (img.height / 2) * scale;
+
+        ctx.fillStyle = '#050505';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const cropHeight = img.height * 0.88;
+        const cropWidth = img.width * 0.95;
+
+        ctx.drawImage(
+            img,
+            0, 0, cropWidth, cropHeight,
+            x, y, cropWidth * scale, cropHeight * scale
+        );
+    }, [images]);
+
+    // Subscribe to scroll changes with RAF
+    useEffect(() => {
+        if (!imagesLoaded) return;
+
+        let rafId;
+        const unsubscribe = scrollYProgress.on("change", (latest) => {
+            if (rafId) cancelAnimationFrame(rafId);
+
+            rafId = requestAnimationFrame(() => {
+                const frameIndex = Math.min(
+                    Math.floor(latest * 239),
+                    239
+                );
+
+                if (frameIndex !== frameIndexRef.current) {
+                    frameIndexRef.current = frameIndex;
+                    renderFrame(frameIndex);
+                }
+            });
+        });
+
+        return () => {
+            unsubscribe();
+            if (rafId) cancelAnimationFrame(rafId);
+        };
+    }, [scrollYProgress, imagesLoaded, renderFrame]);
+
+    // Initial render and resize
     useEffect(() => {
         if (!imagesLoaded || !canvasRef.current) return;
 
         const canvas = canvasRef.current;
-        const ctx = canvas.getContext('2d');
-        const frameIndex = Math.min(Math.floor(currentFrame.get()) - 1, 239);
-        const img = images[frameIndex];
+        const dpr = window.devicePixelRatio || 1;
 
-        if (img && img.complete) {
-            // Set canvas size to match viewport
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
+        const resize = () => {
+            canvas.width = window.innerWidth * dpr;
+            canvas.height = window.innerHeight * dpr;
+            canvas.style.width = `${window.innerWidth}px`;
+            canvas.style.height = `${window.innerHeight}px`;
 
-            // Calculate dimensions to fit image
-            const scale = Math.max(
-                canvas.width / img.width,
-                canvas.height / img.height
-            );
+            const ctx = canvas.getContext('2d');
+            ctx.scale(dpr, dpr);
 
-            const x = (canvas.width / 2) - (img.width / 2) * scale;
-            const y = (canvas.height / 2) - (img.height / 2) * scale;
-
-            // Clear canvas with pure black
-            ctx.fillStyle = '#050505';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-            // Draw image (cropped to remove watermark from bottom-right)
-            const cropHeight = img.height * 0.88; // Crop bottom 12% to remove watermark
-            const cropWidth = img.width * 0.95; // Crop right 5% to remove watermark edge
-
-            ctx.drawImage(
-                img,
-                0, 0, cropWidth, cropHeight, // Source (cropped)
-                x, y, cropWidth * scale, cropHeight * scale // Destination
-            );
-        }
-    }, [currentFrame, images, imagesLoaded]);
-
-    // Subscribe to frame changes
-    useEffect(() => {
-        const unsubscribe = currentFrame.on("change", () => {
-            if (imagesLoaded && canvasRef.current) {
-                const canvas = canvasRef.current;
-                const ctx = canvas.getContext('2d');
-                const frameIndex = Math.min(Math.floor(currentFrame.get()) - 1, 239);
-                const img = images[frameIndex];
-
-                if (img && img.complete) {
-                    canvas.width = window.innerWidth;
-                    canvas.height = window.innerHeight;
-
-                    const scale = Math.max(
-                        canvas.width / img.width,
-                        canvas.height / img.height
-                    );
-
-                    const x = (canvas.width / 2) - (img.width / 2) * scale;
-                    const y = (canvas.height / 2) - (img.height / 2) * scale;
-
-                    ctx.fillStyle = '#050505';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-                    const cropHeight = img.height * 0.88;
-                    const cropWidth = img.width * 0.95;
-
-                    ctx.drawImage(
-                        img,
-                        0, 0, cropWidth, cropHeight,
-                        x, y, cropWidth * scale, cropHeight * scale
-                    );
-                }
-            }
-        });
-
-        return () => unsubscribe();
-    }, [currentFrame, images, imagesLoaded]);
-
-    // Handle resize
-    useEffect(() => {
-        const handleResize = () => {
-            if (canvasRef.current && imagesLoaded) {
-                const canvas = canvasRef.current;
-                canvas.width = window.innerWidth;
-                canvas.height = window.innerHeight;
-            }
+            renderFrame(frameIndexRef.current);
         };
 
-        window.addEventListener('resize', handleResize);
-        return () => window.removeEventListener('resize', handleResize);
-    }, [imagesLoaded]);
+        resize();
+        renderFrame(0);
+
+        window.addEventListener('resize', resize);
+        return () => window.removeEventListener('resize', resize);
+    }, [imagesLoaded, renderFrame]);
 
     return (
-        <div ref={containerRef} style={{ height: '400vh', position: 'relative' }}>
+        <div ref={containerRef} style={{ height: '400vh', position: 'relative', background: '#050505' }}>
             {/* Loading State */}
             {!imagesLoaded && (
                 <div style={{
@@ -141,20 +132,20 @@ const HeadphoneScroll = () => {
                     alignItems: 'center',
                     justifyContent: 'center',
                     background: '#050505',
-                    zIndex: 50
+                    zIndex: 9999
                 }}>
                     <div style={{ textAlign: 'center' }}>
                         <div style={{
                             width: '64px',
                             height: '64px',
-                            border: '4px solid #00ff9d',
-                            borderTopColor: 'transparent',
+                            border: '3px solid rgba(0, 255, 157, 0.2)',
+                            borderTopColor: '#00ff9d',
                             borderRadius: '50%',
-                            animation: 'spin 1s linear infinite',
+                            animation: 'spin 0.8s linear infinite',
                             margin: '0 auto 16px'
                         }}></div>
-                        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', letterSpacing: '0.05em' }}>
-                            Loading Experience...
+                        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                            Loading
                         </p>
                     </div>
                 </div>
@@ -167,139 +158,185 @@ const HeadphoneScroll = () => {
                     position: 'sticky',
                     top: 0,
                     left: 0,
-                    width: '100%',
+                    width: '100vw',
                     height: '100vh',
-                    backgroundColor: '#050505'
+                    backgroundColor: '#050505',
+                    willChange: 'contents'
                 }}
             />
 
-            {/* Text Overlays */}
-            <div style={{
-                position: 'fixed',
-                inset: 0,
-                pointerEvents: 'none',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-            }}>
-                {/* Title - 0% */}
-                <motion.div
-                    style={{
-                        position: 'absolute',
-                        textAlign: 'center',
-                        opacity: useTransform(scrollYProgress, [0, 0.15, 0.25], [1, 1, 0])
-                    }}
-                >
-                    <h1 style={{
-                        fontSize: 'clamp(3rem, 10vw, 9rem)',
-                        fontWeight: 'bold',
-                        letterSpacing: '-0.05em',
-                        color: 'rgba(255,255,255,0.9)',
-                        marginBottom: '16px'
-                    }}>
-                        Echovara
-                    </h1>
-                    <p style={{
-                        fontSize: 'clamp(1.5rem, 3vw, 3rem)',
-                        color: 'rgba(255,255,255,0.6)',
-                        letterSpacing: '0.05em'
-                    }}>
-                        Pure Sound.
-                    </p>
-                </motion.div>
+            {/* Text Overlays - Fixed to only show within scroll range */}
+            {imagesLoaded && (
+                <div style={{
+                    position: 'fixed',
+                    inset: 0,
+                    pointerEvents: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10
+                }}>
+                    {/* Title - 0-20% */}
+                    <motion.div
+                        style={{
+                            position: 'absolute',
+                            textAlign: 'center',
+                            opacity: useTransform(scrollYProgress, [0, 0.12, 0.2], [1, 1, 0]),
+                            display: useTransform(scrollYProgress, (v) => v > 0.25 ? 'none' : 'block')
+                        }}
+                    >
+                        <h1 style={{
+                            fontSize: 'clamp(3rem, 12vw, 10rem)',
+                            fontWeight: '800',
+                            letterSpacing: '-0.05em',
+                            color: '#fff',
+                            marginBottom: '16px',
+                            textShadow: '0 0 40px rgba(0, 255, 157, 0.3)'
+                        }}>
+                            Echovara
+                        </h1>
+                        <p style={{
+                            fontSize: 'clamp(1.2rem, 3vw, 2.5rem)',
+                            color: 'rgba(255,255,255,0.6)',
+                            letterSpacing: '0.15em',
+                            textTransform: 'uppercase',
+                            fontWeight: '300'
+                        }}>
+                            Pure Sound
+                        </p>
+                    </motion.div>
 
-                {/* Precision Engineering - 30% */}
-                <motion.div
-                    style={{
-                        position: 'absolute',
-                        left: 'clamp(2rem, 6vw, 6rem)',
-                        opacity: useTransform(scrollYProgress, [0.25, 0.35, 0.45, 0.55], [0, 1, 1, 0])
-                    }}
-                >
-                    <h2 style={{
-                        fontSize: 'clamp(2.5rem, 7vw, 7rem)',
-                        fontWeight: 'bold',
-                        letterSpacing: '-0.02em',
-                        color: 'rgba(255,255,255,0.9)'
-                    }}>
-                        Precision<br />Engineering.
-                    </h2>
-                    <p style={{
-                        fontSize: 'clamp(1rem, 1.5vw, 1.5rem)',
-                        color: 'rgba(255,255,255,0.5)',
-                        marginTop: '16px',
-                        maxWidth: '28rem'
-                    }}>
-                        Every component crafted to perfection
-                    </p>
-                </motion.div>
+                    {/* Precision Engineering - 25-50% */}
+                    <motion.div
+                        style={{
+                            position: 'absolute',
+                            left: 'clamp(2rem, 8vw, 8rem)',
+                            opacity: useTransform(scrollYProgress, [0.25, 0.32, 0.45, 0.52], [0, 1, 1, 0]),
+                            display: useTransform(scrollYProgress, (v) => (v > 0.22 && v < 0.55) ? 'block' : 'none')
+                        }}
+                    >
+                        <h2 style={{
+                            fontSize: 'clamp(2rem, 8vw, 7rem)',
+                            fontWeight: '700',
+                            letterSpacing: '-0.03em',
+                            color: '#fff',
+                            lineHeight: '1.1',
+                            textShadow: '0 0 30px rgba(0, 255, 157, 0.2)'
+                        }}>
+                            Precision<br />Engineering
+                        </h2>
+                        <div style={{
+                            width: '60px',
+                            height: '3px',
+                            background: 'linear-gradient(90deg, #00ff9d, transparent)',
+                            marginTop: '20px',
+                            marginBottom: '20px'
+                        }}></div>
+                        <p style={{
+                            fontSize: 'clamp(0.9rem, 1.5vw, 1.3rem)',
+                            color: 'rgba(255,255,255,0.5)',
+                            maxWidth: '28rem',
+                            fontWeight: '300',
+                            letterSpacing: '0.02em'
+                        }}>
+                            Every component crafted to perfection
+                        </p>
+                    </motion.div>
 
-                {/* Titanium Drivers - 60% */}
-                <motion.div
-                    style={{
-                        position: 'absolute',
-                        right: 'clamp(2rem, 6vw, 6rem)',
-                        textAlign: 'right',
-                        opacity: useTransform(scrollYProgress, [0.55, 0.65, 0.75, 0.85], [0, 1, 1, 0])
-                    }}
-                >
-                    <h2 style={{
-                        fontSize: 'clamp(2.5rem, 7vw, 7rem)',
-                        fontWeight: 'bold',
-                        letterSpacing: '-0.02em',
-                        color: 'rgba(255,255,255,0.9)'
-                    }}>
-                        Titanium<br />Drivers.
-                    </h2>
-                    <p style={{
-                        fontSize: 'clamp(1rem, 1.5vw, 1.5rem)',
-                        color: 'rgba(255,255,255,0.5)',
-                        marginTop: '16px',
-                        maxWidth: '28rem'
-                    }}>
-                        Unparalleled audio clarity
-                    </p>
-                </motion.div>
+                    {/* Titanium Drivers - 55-75% */}
+                    <motion.div
+                        style={{
+                            position: 'absolute',
+                            right: 'clamp(2rem, 8vw, 8rem)',
+                            textAlign: 'right',
+                            opacity: useTransform(scrollYProgress, [0.55, 0.62, 0.72, 0.78], [0, 1, 1, 0]),
+                            display: useTransform(scrollYProgress, (v) => (v > 0.52 && v < 0.82) ? 'block' : 'none')
+                        }}
+                    >
+                        <h2 style={{
+                            fontSize: 'clamp(2rem, 8vw, 7rem)',
+                            fontWeight: '700',
+                            letterSpacing: '-0.03em',
+                            color: '#fff',
+                            lineHeight: '1.1',
+                            textShadow: '0 0 30px rgba(0, 255, 157, 0.2)'
+                        }}>
+                            Titanium<br />Drivers
+                        </h2>
+                        <div style={{
+                            width: '60px',
+                            height: '3px',
+                            background: 'linear-gradient(270deg, #00ff9d, transparent)',
+                            marginTop: '20px',
+                            marginBottom: '20px',
+                            marginLeft: 'auto'
+                        }}></div>
+                        <p style={{
+                            fontSize: 'clamp(0.9rem, 1.5vw, 1.3rem)',
+                            color: 'rgba(255,255,255,0.5)',
+                            maxWidth: '28rem',
+                            fontWeight: '300',
+                            letterSpacing: '0.02em'
+                        }}>
+                            Unparalleled audio clarity
+                        </p>
+                    </motion.div>
 
-                {/* CTA - 90% */}
-                <motion.div
-                    style={{
-                        position: 'absolute',
-                        textAlign: 'center',
-                        opacity: useTransform(scrollYProgress, [0.85, 0.92, 1], [0, 1, 1])
-                    }}
-                >
-                    <h2 style={{
-                        fontSize: 'clamp(3rem, 8vw, 8rem)',
-                        fontWeight: 'bold',
-                        letterSpacing: '-0.05em',
-                        color: 'rgba(255,255,255,0.9)',
-                        marginBottom: '32px'
-                    }}>
-                        Hear Everything.
-                    </h2>
-                    <button style={{
-                        padding: '16px 48px',
-                        background: '#00ff9d',
-                        color: '#000',
-                        fontSize: '18px',
-                        fontWeight: 'bold',
-                        letterSpacing: '0.05em',
-                        borderRadius: '2px',
-                        border: 'none',
-                        cursor: 'pointer',
-                        pointerEvents: 'auto',
-                        transition: 'all 0.3s'
-                    }}>
-                        Explore Collection
-                    </button>
-                </motion.div>
-            </div>
+                    {/* CTA - 82-100% */}
+                    <motion.div
+                        style={{
+                            position: 'absolute',
+                            textAlign: 'center',
+                            opacity: useTransform(scrollYProgress, [0.82, 0.88, 1], [0, 1, 1]),
+                            display: useTransform(scrollYProgress, (v) => v > 0.78 ? 'block' : 'none')
+                        }}
+                    >
+                        <h2 style={{
+                            fontSize: 'clamp(2.5rem, 10vw, 9rem)',
+                            fontWeight: '800',
+                            letterSpacing: '-0.05em',
+                            color: '#fff',
+                            marginBottom: '40px',
+                            textShadow: '0 0 50px rgba(0, 255, 157, 0.4)'
+                        }}>
+                            Hear Everything
+                        </h2>
+                        <button style={{
+                            padding: '18px 60px',
+                            background: 'linear-gradient(135deg, #00ff9d 0%, #00d4aa 100%)',
+                            color: '#000',
+                            fontSize: '16px',
+                            fontWeight: '700',
+                            letterSpacing: '0.1em',
+                            borderRadius: '4px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            pointerEvents: 'auto',
+                            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                            textTransform: 'uppercase',
+                            boxShadow: '0 10px 40px rgba(0, 255, 157, 0.3)'
+                        }}
+                            onMouseEnter={(e) => {
+                                e.target.style.transform = 'translateY(-2px)';
+                                e.target.style.boxShadow = '0 15px 50px rgba(0, 255, 157, 0.5)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.target.style.transform = 'translateY(0)';
+                                e.target.style.boxShadow = '0 10px 40px rgba(0, 255, 157, 0.3)';
+                            }}
+                        >
+                            Explore Collection
+                        </button>
+                    </motion.div>
+                </div>
+            )}
 
-            {/* Add keyframes for spinner */}
             <style>{`
         @keyframes spin {
           to { transform: rotate(360deg); }
+        }
+        html {
+          scroll-behavior: smooth;
         }
       `}</style>
         </div>
