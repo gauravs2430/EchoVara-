@@ -1,5 +1,5 @@
 import React from 'react';
-import HeadphoneScroll from '../components/HeadphoneScroll';
+import HeroSection from '../components/HeroSection';
 import FeaturedProducts from '../components/FeaturedProducts';
 import TechnologySection from '../components/TechnologySection';
 import Testimonials from '../components/Testimonials';
@@ -8,8 +8,8 @@ import Newsletter from '../components/Newsletter';
 const HomePage = () => {
   return (
     <div style={{ background: '#050505' }}>
-      {/* Scrollytelling Hero */}
-      <HeadphoneScroll />
+      {/* Standard Hero Section */}
+      <HeroSection />
 
       {/* Rest of the page */}
       <div style={{ background: '#050505' }}>
