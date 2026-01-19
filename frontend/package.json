@@ -22,18 +22,22 @@
         "swiper": "^10.2.0"
     },
     "scripts": {
-        "start": "react-scripts start",
-        "build": "react-scripts build",
-        "test": "react-scripts test",
+        "start": "vite",
+        "build": "vite build",
+        "test": "vitest",
+        "preview": "vite preview",
         "eject": "react-scripts eject"
     },
     "devDependencies": {
+        "@tailwindcss/postcss": "^4.1.18",
+        "@tailwindcss/vite": "^4.1.18",
         "@testing-library/react": "^14.0.0",
+        "@vitejs/plugin-react": "^5.1.2",
         "autoprefixer": "^10.4.23",
         "eslint": "^8.47.0",
         "postcss": "^8.5.6",
-        "react-scripts": "5.0.1",
-        "tailwindcss": "^4.1.18"
+        "tailwindcss": "^4.1.18",
+        "vite": "^7.3.1"
     },
     "browserslist": {
         "production": [
