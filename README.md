@@ -66,10 +66,6 @@ To run this project locally:
     ```bash
     npm run start
     ```
-
-
-4.  Open [http://localhost:5173](http://localhost:5173) to view it in the browser.
-
 ---
 
 *Built with passion and code.*
